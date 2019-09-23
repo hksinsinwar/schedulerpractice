@@ -1,27 +1,26 @@
 package com.example.batchprocessing;
 
-import javax.sql.DataSource;
+import java.io.File;
+import java.io.IOException;
 
+import javax.annotation.PostConstruct;
+
+import org.quartz.JobDetail;
+import org.quartz.Scheduler;
+import org.quartz.SchedulerException;
+import org.quartz.Trigger;
 import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobExecutionListener;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
-import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
-import org.springframework.batch.item.database.JdbcBatchItemWriter;
-import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.file.FlatFileItemReader;
-import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
-import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
-import org.springframework.batch.item.file.mapping.DefaultLineMapper;
-import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
+import org.springframework.batch.item.file.LineMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 // tag::setup[]
 @Configuration
@@ -36,17 +35,39 @@ public class BatchConfiguration {
     // end::setup[]
 
     // tag::readerwriterprocessor[]
+    
+    @Autowired
+    Scheduler quartzScheduler;
+    
+    @Autowired
+    JobDetail jobDetail;
+    
+    @Autowired
+    Trigger trgger;
+    
+    
+    
+    File f;
+    @PostConstruct
+    public void init() throws IOException, SchedulerException{
+    	f = new ClassPathResource("out.txt").getFile();
+    	quartzScheduler.scheduleJob(jobDetail, trgger);
+    }
+    
+    
     @Bean
     public FlatFileItemReader<Person> reader() {
-        return new FlatFileItemReaderBuilder<Person>()
-            .name("personItemReader")
-            .resource(new ClassPathResource("sample-data.csv"))
-            .delimited()
-            .names(new String[]{"firstName", "lastName"})
-            .fieldSetMapper(new BeanWrapperFieldSetMapper<Person>() {{
-                setTargetType(Person.class);
-            }})
-            .build();
+    	FlatFileItemReader<Person> ffR = new FlatFileItemReader<Person>();
+    	ffR.setResource(new ClassPathResource("sample-data.csv"));
+    	ffR.setName("flatFileItemReader");
+    	ffR.setLineMapper(new LineMapper<Person>() {
+			@Override
+			public Person mapLine(String line, int lineNumber) throws Exception {
+				String[] values=line.split(",");
+				return new Person(values[0], values[1]);
+			}
+		});;
+        return ffR; 
     }
 
     @Bean
@@ -55,12 +76,9 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public JdbcBatchItemWriter<Person> writer(DataSource dataSource) {
-        return new JdbcBatchItemWriterBuilder<Person>()
-            .itemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>())
-            .sql("INSERT INTO people (first_name, last_name) VALUES (:firstName, :lastName)")
-            .dataSource(dataSource)
-            .build();
+    public BatchFileWriter<Person> writer() {
+    return new BatchFileWriter<Person>(f);
+       
     }
     // end::readerwriterprocessor[]
 
@@ -76,7 +94,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step step1(JdbcBatchItemWriter<Person> writer) {
+    public Step step1(BatchFileWriter<Person> writer) {
         return stepBuilderFactory.get("step1")
             .<Person, Person> chunk(10)
             .reader(reader())

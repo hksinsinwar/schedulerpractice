@@ -1,0 +1,7 @@
+spring: 
+  data: 
+    mongodb: 
+      database: batch_scheduler
+      host: mongodb://localhost:27017
+      port: 27017
+      uri: mongodb://localhost:27017/batch_scheduler
